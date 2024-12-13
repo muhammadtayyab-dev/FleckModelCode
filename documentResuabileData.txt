@@ -1,0 +1,278 @@
+
+//    if (result) {
+//        return arrayOf()
+//    } else {
+//        return arrayOf()
+//    }
+
+    //as Array<Array<FloatArray>>
+    /*val rows = prediction.size
+    val cols = 4//prediction[0].size
+    val width = prediction[0][0].size
+    val subarray = Array(rows) { i ->
+        DoubleArray(width) { k ->
+            var rowMax = Double.MIN_VALUE
+            for (j in 0 until cols) {
+                if (prediction[i][j + 4][k] > rowMax) {
+                    rowMax = prediction[i][j + 4][k].toDouble()
+                }
+            }
+            rowMax
+        }
+    }
+    var finalOutput: Array<FloatArray> = arrayOf()
+    val result = subarray.map { it.map { it > confThreshold } }*/
+/*
+    for ((xi, x) in prediction.withIndex()) {
+        val transpose = Array(x[0].size) { i ->
+            FloatArray(x.size) { j -> x[j][i] }
+        }
+
+        val filtered = transpose.filterIndexed { index, _ -> result[0][index] }.toTypedArray()
+        val result_ =
+            Array(filtered.size) { i -> FloatArray(filtered[0].size) { j -> filtered[i][j] } }
+
+        if (result_.size < 4) {
+            return arrayOf()
+        }
+
+        val (boxes, remaining) = result_.map { it.sliceArray(0 until 4) to it.sliceArray(4 until it.size) }
+            .unzip()
+        val (classes, masks) = remaining.map { it.sliceArray(0 until nc) to it.sliceArray(nc until nc + 32) }
+            .unzip()
+
+        var box = boxes.toTypedArray()
+        val cls = classes.toTypedArray()
+        val mask = masks.toTypedArray()
+        box = xywh2xyxy(box)
+        val maxIndices = FloatArray(cls.size)
+
+        for (i in cls.indices) {
+            var maxIndex = 0
+            var maxValue = cls[i][0]
+
+            for (j in 1 until cls[i].size) {
+                if (cls[i][j] > maxValue) {
+                    maxValue = cls[i][j]
+                    maxIndex = j
+                }
+            }
+
+            maxIndices[i] = maxIndex.toFloat()
+        }
+
+        val conf = cls.map { it.maxOrNull()!! }.toTypedArray()
+        val j = maxIndices.toTypedArray()
+        val concatenatedArray = Array(box.size) { row ->
+            box[row] + conf[row] + j[row] + mask[row]
+        }
+
+        val sortedIndices =
+            concatenatedArray.indices.sortedByDescending { concatenatedArray[it][4] }.take(maxNms)
+        val filteredX = sortedIndices.map { concatenatedArray[it] }.toTypedArray()
+        val c = filteredX.map { row ->
+            row[5] * maxWh
+        }
+        val _boxes = mutableListOf<FloatArray>()
+        val scores = mutableListOf<Float>()
+        for (i in filteredX.indices) {
+            val box = FloatArray(4) { j ->
+                filteredX[i][j] + c[j]
+            }
+            _boxes.add(box)
+            scores.add(filteredX[i][4])
+        }
+        val output = nms(_boxes.toTypedArray(), scores.toFloatArray(), iouThreshold)
+//        finalOutput = Array(output.size) { i ->
+//            filteredX[i]
+//        }
+    }*/
+//    return arrayOf()
+
+
+
+
+
+
+fun nms(boxes: Array<FloatArray>, scores: FloatArray, iouThreshold: Float): IntArray {
+    val numBoxes = boxes.size
+    var sortedIndices = scores.indices.sortedByDescending { scores[it] }
+    val selectedIndices = mutableListOf<Int>()
+
+    while (sortedIndices.isNotEmpty()) {
+        val referenceIndex = sortedIndices.first()
+        selectedIndices.add(referenceIndex)
+
+        val referenceBox = boxes[referenceIndex]
+        val remainingIndices = mutableListOf<Int>()
+        for (i in 1 until sortedIndices.size) {
+            val currentIndex = sortedIndices[i]
+            val currentBox = boxes[currentIndex]
+            val iou = calculateIoU(referenceBox, currentBox)
+
+            if (iou <= iouThreshold) {
+                remainingIndices.add(currentIndex)
+            }
+        }
+
+        sortedIndices = remainingIndices.sortedByDescending { scores[it] }
+    }
+
+    return selectedIndices.toIntArray()
+}
+
+fun calculateIoU(box1: FloatArray, box2: FloatArray): Float {
+    val x1 = maxOf(box1[0], box2[0])
+    val y1 = maxOf(box1[1], box2[1])
+    val x2 = minOf(box1[2], box2[2])
+    val y2 = minOf(box1[3], box2[3])
+
+    if (x2 <= x1 || y2 <= y1) {
+        return 0.0f
+    }
+
+    val intersectionArea = (x2 - x1) * (y2 - y1)
+    val box1Area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    val box2Area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    val unionArea = box1Area + box2Area - intersectionArea
+
+    return intersectionArea / unionArea
+}
+
+fun xywh2xyxy(x: Array<FloatArray>): Array<FloatArray> {
+    val y = x.map { it.clone() }.toTypedArray()
+
+    y.forEach {
+        it[0] = it[0] - it[2] / 2  // top left x
+        it[1] = it[1] - it[3] / 2  // top left y
+        it[2] = it[0] + it[2] / 2  // bottom right x
+        it[3] = it[1] + it[3] / 2  // bottom right y
+    }
+
+    return y
+}
+
+fun scaleBoxes(
+    img1Shape: Pair<Int, Int>,
+    boxes: Array<FloatArray>,
+    img0Shape: Pair<Int, Int>,
+    ratioPad: Pair<Pair<Float, Float>, Pair<Float, Float>>? = null
+): Array<FloatArray> {
+    val gain: Float
+    val pad: Pair<Float, Float>
+
+    if (ratioPad == null) { // calculate from img0_shape
+        gain = minOf(
+            img1Shape.first.toFloat() / img0Shape.first,
+            img1Shape.second.toFloat() / img0Shape.second
+        ) // gain  = old / new
+        pad = Pair(
+            (img1Shape.second - img0Shape.second * gain) / 2,
+            (img1Shape.first - img0Shape.first * gain) / 2
+        ) // wh padding
+    } else {
+        gain = ratioPad.first.first
+        pad = ratioPad.second
+    }
+
+    for (box in boxes) {
+        box[0] -= pad.first // x padding
+        box[2] -= pad.first // x padding
+        box[1] -= pad.second // y padding
+        box[3] -= pad.second // y padding
+        box[0] /= gain
+        box[1] /= gain
+        box[2] /= gain
+        box[3] /= gain
+    }
+    return clipBoxes(boxes, img0Shape)
+
+}
+
+fun clipBoxes(boxes: Array<FloatArray>, shape: Pair<Int, Int>): Array<FloatArray> {
+    val finalBoxes: Array<FloatArray> = boxes
+    for ((i, box) in boxes.withIndex()) {
+        box[0] = box[0].coerceIn(0f, shape.second.toFloat())  // x1
+        box[1] = box[1].coerceIn(0f, shape.first.toFloat())  // y1
+        box[2] = box[2].coerceIn(0f, shape.second.toFloat())  // x2
+        box[3] = box[3].coerceIn(0f, shape.first.toFloat())  // y2
+        finalBoxes[i] = box
+    }
+    return finalBoxes
+}
+
+
+
+
+
+    fun convertToTensor(input: Array<Array<Array<FloatArray>>>): Tensor {
+        val shape = longArrayOf(
+            input.size.toLong(),
+            input[0].size.toLong(),
+            input[0][0].size.toLong(),
+            input[0][0][0].size.toLong()
+        )
+        val data = FloatArray(input.size * input[0].size * input[0][0].size * input[0][0][0].size)
+        var dataIndex = 0
+        for (i in input.indices) {
+            for (j in input[i].indices) {
+                for (k in input[i][j].indices) {
+                    for (l in input[i][j][k].indices) {
+                        data[dataIndex++] = input[i][j][k][l]
+                    }
+                }
+            }
+        }
+        return Tensor.fromBlob(data, shape)
+    }
+
+
+
+
+
+
+    fun reshapeMatTo4D(
+        mat: Mat, numChannels: Int, numRows: Int, numCols: Int, numSamples: Int
+    ): Array<FloatArray> {
+        // Convert the input Mat to 32-bit floating-point representation
+        val mat32f = Mat()
+        mat.convertTo(mat32f, CvType.CV_32F)
+
+        // Reshape the Mat to a 4D array
+        val mat4D = mat32f.reshape(numChannels, 4)
+
+        // Convert the 4D array to an Array<FloatArray>
+        val outputArray = Array(numSamples) { FloatArray(numChannels * numRows * numCols) }
+        for (i in 0 until numSamples) {
+            mat4D.get(i, 0, outputArray[i])
+        }
+
+        return outputArray
+    }
+
+    fun imageToTensor(image: Mat): Mat {
+        val inputTensor = Mat()
+        image.convertTo(
+            inputTensor, CvType.CV_32F, 1.0 / 255.0
+        ) // int8 to fp32, 0 - 255 to 0.0 - 1.0
+        val inputTensors = mutableListOf<Mat>()
+        inputTensors.add(inputTensor)
+        val outputTensor = Mat()
+        Core.merge(inputTensors, outputTensor) // merge input tensors into a single output tensor
+
+        // add batch dimension
+        val outputTensors = mutableListOf<Mat>()
+        outputTensors.add(outputTensor.reshape(1, 1))
+        Core.merge(outputTensors, outputTensor)
+
+        return outputTensor
+    }
+
+
+
+
+//                        if (orignalImage.channels() == 3) {
+//                            Imgproc.cvtColor(orignalImage, orignalImage, Imgproc.COLOR_RGB2RGBA)
+//                        } else if (orignalImage.channels() == 1) {
+//                            Imgproc.cvtColor(orignalImage, orignalImage, Imgproc.COLOR_GRAY2BGRA)
+//                        }
